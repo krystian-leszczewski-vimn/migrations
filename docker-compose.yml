@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  db:
+    build: .
+    ports:
+     - "5430:5432"
+    environment:
+      - POSTGRES_DB=migrations
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - type: bind
+        source: /Users/leszczek0516/dev/sandbox/migrations/snapshot
+        target: /snapshot

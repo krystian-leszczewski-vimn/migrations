@@ -1,0 +1,1 @@
+insert into migrations.test_table(id, env, text_variable) VALUES ('2', 'all', 'text2');
