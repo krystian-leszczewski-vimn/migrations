@@ -1,7 +1,6 @@
 package dev.ktrycode.migrations
 
 import dev.ktrycode.migrations.MigrationsApplicationTests.*
-import dev.ktrycode.migrations.MigrationsApplicationTests.Companion.envTemp
 import mu.KLogging
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -15,6 +14,8 @@ import org.springframework.context.ApplicationContextInitializer
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.test.context.ContextConfiguration
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.BindMode.READ_ONLY
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
@@ -22,17 +23,45 @@ import org.testcontainers.junit.jupiter.Testcontainers
 
 @ContextConfiguration(initializers = [DevInitializer::class])
 class DevMigrationTest : MigrationsApplicationTests() {
-    @Value("\${env}")
-    fun setEnv(env: String) {
-        envTemp = env
+    companion object {
+        @Container
+        private val POSTGRES = setupContainer("dev")
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun addDatasourceUrl(registry: DynamicPropertyRegistry) {
+            registry.add("spring.datasource.url", POSTGRES::getJdbcUrl)
+        }
     }
 }
 
 @ContextConfiguration(initializers = [QaInitializer::class])
-class QaMigrationTest : MigrationsApplicationTests()
+class QaMigrationTest : MigrationsApplicationTests() {
+    companion object {
+        @Container
+        private val POSTGRES = setupContainer("qa")
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun addDatasourceUrl(registry: DynamicPropertyRegistry) {
+            registry.add("spring.datasource.url", POSTGRES::getJdbcUrl)
+        }
+    }
+}
 
 @ContextConfiguration(initializers = [ProdInitializer::class])
-class ProdMigrationTest : MigrationsApplicationTests()
+class ProdMigrationTest : MigrationsApplicationTests() {
+    companion object {
+        @Container
+        private val POSTGRES = setupContainer("prod")
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun addDatasourceUrl(registry: DynamicPropertyRegistry) {
+            registry.add("spring.datasource.url", POSTGRES::getJdbcUrl)
+        }
+    }
+}
 
 @Testcontainers
 @JdbcTest
@@ -63,19 +92,15 @@ abstract class MigrationsApplicationTests {
         private const val DATABASE_NAME = "migrations"
         private const val CONTAINER_NAME = "${DATABASE_NAME}_test_db"
 
-        @JvmField
-        var envTemp: String = "placeholder"
-
         private const val dumpFilenameTemplate = "B7__{{env}}_dump.pgsql"
         private fun createDumpFilename(env: String) = dumpFilenameTemplate.replace("{{env}}", env)
 
-        @Container
-        private val POSTGRES: KPostgresContainer = createContainer(envTemp).apply {
+        fun setupContainer(env: String) = createContainer(env).apply {
             start()
             importDump()
         }
 
-        private fun createContainer(env: String) = KPostgresContainer("11.8")
+        private fun createContainer(env: String): KPostgresContainer = KPostgresContainer("11.8")
             .withCreateContainerCmdModifier { it.withName(CONTAINER_NAME) }
             .withDatabaseName(DATABASE_NAME)
             .withUsername("user")
@@ -95,10 +120,7 @@ abstract class MigrationsApplicationTests {
     open class EnvSpecificInitializer(private val env: String) : CommonInitializer() {
         override fun initialize(configurableApplicationContext: ConfigurableApplicationContext) {
             super.initialize(configurableApplicationContext)
-            val values = TestPropertyValues.of(
-                "env=$env",
-                "spring.flyway.placeholders.env=$env"
-            )
+            val values = TestPropertyValues.of("env=$env")
             values.applyTo(configurableApplicationContext)
         }
     }
@@ -106,7 +128,6 @@ abstract class MigrationsApplicationTests {
     open class CommonInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
         override fun initialize(configurableApplicationContext: ConfigurableApplicationContext) {
             val values = TestPropertyValues.of(
-                "spring.datasource.url=" + POSTGRES.jdbcUrl,
                 "spring.datasource.username=user",
                 "spring.datasource.password=password",
                 "spring.flyway.user=user",
