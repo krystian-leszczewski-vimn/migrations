@@ -1,6 +1,7 @@
 package dev.ktrycode.migrations
 
 import dev.ktrycode.migrations.MigrationsApplicationTests.*
+import dev.ktrycode.migrations.MigrationsApplicationTests.Companion.envTemp
 import mu.KLogging
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -20,21 +21,27 @@ import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 
 @ContextConfiguration(initializers = [DevInitializer::class])
-class DevMigrationTest : MigrationsApplicationTests("dev")
+class DevMigrationTest : MigrationsApplicationTests() {
+    @Value("\${env}")
+    fun setEnv(env: String) {
+        envTemp = env
+    }
+}
 
 @ContextConfiguration(initializers = [QaInitializer::class])
-class QaMigrationTest : MigrationsApplicationTests("qa")
+class QaMigrationTest : MigrationsApplicationTests()
 
 @ContextConfiguration(initializers = [ProdInitializer::class])
-class ProdMigrationTest : MigrationsApplicationTests("prod")
+class ProdMigrationTest : MigrationsApplicationTests()
 
 @Testcontainers
 @JdbcTest
 @AutoConfigureTestDatabase(replace = NONE)
-@ContextConfiguration(initializers = [CommonInitializer::class])
-abstract class MigrationsApplicationTests(
-    val env: String
-) {
+abstract class MigrationsApplicationTests {
+
+    @Value("\${env}")
+    private lateinit var env: String
+
     @Autowired
     private lateinit var jdbcTemplate: NamedParameterJdbcTemplate
 
@@ -52,15 +59,18 @@ abstract class MigrationsApplicationTests(
         assertThat(rowsCount).isEqualTo(1)
     }
 
-    private companion object : KLogging() {
-        const val DATABASE_NAME = "migrations"
-        const val CONTAINER_NAME = "${DATABASE_NAME}_test_db"
+    companion object : KLogging() {
+        private const val DATABASE_NAME = "migrations"
+        private const val CONTAINER_NAME = "${DATABASE_NAME}_test_db"
+
+        @JvmField
+        var envTemp: String = "placeholder"
 
         private const val dumpFilenameTemplate = "B7__{{env}}_dump.pgsql"
         private fun createDumpFilename(env: String) = dumpFilenameTemplate.replace("{{env}}", env)
 
         @Container
-        private val POSTGRES: KPostgresContainer = createContainer().apply {
+        private val POSTGRES: KPostgresContainer = createContainer(envTemp).apply {
             start()
             importDump()
         }
@@ -78,6 +88,21 @@ abstract class MigrationsApplicationTests(
         }
     }
 
+    class DevInitializer : EnvSpecificInitializer("dev")
+    class QaInitializer : EnvSpecificInitializer("qa")
+    class ProdInitializer : EnvSpecificInitializer("prod")
+
+    open class EnvSpecificInitializer(private val env: String) : CommonInitializer() {
+        override fun initialize(configurableApplicationContext: ConfigurableApplicationContext) {
+            super.initialize(configurableApplicationContext)
+            val values = TestPropertyValues.of(
+                "env=$env",
+                "spring.flyway.placeholders.env=$env"
+            )
+            values.applyTo(configurableApplicationContext)
+        }
+    }
+
     open class CommonInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
         override fun initialize(configurableApplicationContext: ConfigurableApplicationContext) {
             val values = TestPropertyValues.of(
@@ -87,23 +112,6 @@ abstract class MigrationsApplicationTests(
                 "spring.flyway.user=user",
                 "spring.flyway.password=password",
                 "spring.datasource.hikari.maximum-pool-size=20"
-            )
-            values.applyTo(configurableApplicationContext)
-        }
-    }
-
-    class DevInitializer : EnvSpecificInitializer("dev")
-
-    class QaInitializer : EnvSpecificInitializer("qa")
-
-    class ProdInitializer : EnvSpecificInitializer("prod")
-
-    open class EnvSpecificInitializer(private val flywayEnvironmentPlaceholder: String) :
-        ApplicationContextInitializer<ConfigurableApplicationContext> {
-
-        override fun initialize(configurableApplicationContext: ConfigurableApplicationContext) {
-            val values = TestPropertyValues.of(
-                "spring.flyway.placeholders.env=$flywayEnvironmentPlaceholder"
             )
             values.applyTo(configurableApplicationContext)
         }
